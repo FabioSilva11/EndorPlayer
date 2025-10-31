@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "736686664279",
+    "project_id": "endorplayer",
+    "storage_bucket": "endorplayer.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:736686664279:android:517724b6c3172786575112",
+        "android_client_info": {
+          "package_name": "pay.solutions.endorplayer"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBZPlS-ORKoPfY6gKn2Yafw1HwVRDYMXdQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
