@@ -15,8 +15,11 @@ import com.google.android.exoplayer2.ExoPlayer
 import com.google.android.exoplayer2.MediaItem
 import com.google.android.exoplayer2.Player
 import com.google.android.exoplayer2.ui.PlayerView
-import org.json.JSONArray
-import org.json.JSONObject
+import com.google.firebase.database.FirebaseDatabase
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 
 class MainActivity : Activity() {
 
@@ -27,92 +30,25 @@ class MainActivity : Activity() {
     private var loadingRunning = false
     private var player: ExoPlayer? = null
     private var items: List<MediaItem> = emptyList()
-    private var playlistJsonWithAnalytics: String = "[]"
+    private data class VideoRecord(
+        val dbKey: String,
+        val videoId: Int,
+        val mediaItem: MediaItem
+    )
+    private var videoRecords: List<VideoRecord> = emptyList()
+    private var lastPlayedIndex: Int = -1
 
-    private val videosJson = """
-        [
-          {
-            "id": 1,
-            "userId": 1001,
-            "title": "10 Seconds Placeholder (HD)",
-            "url": "https://samplelib.com/lib/preview/mp4/sample-10s.mp4",
-            "views": 18204,
-            "orientation": "landscape"
-          },
-          {
-            "id": 2,
-            "userId": 1002,
-            "title": "Big Buck Bunny (30s Clip)",
-            "url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-            "views": 958312,
-            "orientation": "landscape"
-          },
-          {
-            "id": 3,
-            "userId": 1003,
-            "title": "Sintel Trailer (Open Movie)",
-            "url": "https://media.w3.org/2010/05/sintel/trailer.mp4",
-            "views": 702149,
-            "orientation": "portrait"
-          },
-          {
-            "id": 4,
-            "userId": 1004,
-            "title": "Tears of Steel (Short Test)",
-            "url": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-            "views": 489213,
-            "orientation": "landscape"
-          },
-          {
-            "id": 5,
-            "userId": 1005,
-            "title": "Bunny 720p Placeholder",
-            "url": "https://file-examples.com/storage/feafbcc9dbfe6bb7/sample_960x400_ocean_with_audio.mp4",
-            "views": 14326,
-            "orientation": "portrait"
-          },
-          {
-            "id": 6,
-            "userId": 1006,
-            "title": "5 Seconds Color Bars (No Audio)",
-            "url": "https://sample-videos.com/video123/mp4/240/big_buck_bunny_240p_5mb.mp4",
-            "views": 33102,
-            "orientation": "portrait"
-          },
-          {
-            "id": 7,
-            "userId": 1007,
-            "title": "Placeholder Landscape Video",
-            "url": "https://www.w3schools.com/html/mov_bbb.mp4",
-            "views": 110243,
-            "orientation": "landscape"
-          },
-          {
-            "id": 8,
-            "userId": 1008,
-            "title": "City Drone Footage Placeholder",
-            "url": "https://sample-videos.com/video321/mp4/720/big_buck_bunny_720p_1mb.mp4",
-            "views": 57219,
-            "orientation": "landscape"
-          },
-          {
-            "id": 9,
-            "userId": 1009,
-            "title": "Pexels Stock Test Clip (Nature)",
-            "url": "https://player.vimeo.com/external/310582961.sd.mp4?s=76f43e87875cc9d5c8adff73a8b80db0c4e8a0db&profile_id=164",
-            "views": 243879,
-            "orientation": "portrait"
-          },
-          {
-            "id": 10,
-            "userId": 1010,
-            "title": "Black Screen Placeholder (Silent)",
-            "url": "https://archive.org/download/black-video-placeholder/black-video-placeholder.mp4",
-            "views": 5271,
-            "orientation": "landscape"
-          }
-        ]
-    """.trimIndent()
+    private val db by lazy { FirebaseDatabase.getInstance().reference }
+    private var tvId: Int = -1
+    private val presenceHandler = Handler(Looper.getMainLooper())
+    private val presenceRunnable = object : Runnable {
+        override fun run() {
+            updateLastSeen()
+            presenceHandler.postDelayed(this, 60_000) // 60s
+        }
+    }
+
+    // JSON local removido: agora os vídeos vêm apenas do Firebase
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -120,7 +56,17 @@ class MainActivity : Activity() {
 
         playerView = findViewById(R.id.player_view)
         loadingText = findViewById(R.id.text_loading)
-        items = buildMediaItemsFromJson()
+        fetchMediaItemsFromDatabase { mediaItems, records ->
+            items = mediaItems
+            videoRecords = records
+            if (items.isNotEmpty()) {
+                initializePlayer()
+            }
+        }
+
+        // Carrega id da TV salvo nas preferências
+        tvId = getSharedPreferences(SettingsActivity.PREFS_NAME, Context.MODE_PRIVATE)
+            .getInt(SettingsActivity.KEY_TV_ID, -1)
 
         applyImmersiveMode()
 
@@ -155,6 +101,27 @@ class MainActivity : Activity() {
         releasePlayer()
     }
 
+    override fun onResume() {
+        super.onResume()
+        setOnline(true)
+        presenceHandler.removeCallbacks(presenceRunnable)
+        presenceHandler.post(presenceRunnable)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        presenceHandler.removeCallbacks(presenceRunnable)
+        setOnline(false)
+        updateLastSeen()
+    }
+
+    override fun onDestroy() {
+        presenceHandler.removeCallbacks(presenceRunnable)
+        setOnline(false)
+        updateLastSeen()
+        super.onDestroy()
+    }
+
     private fun initializePlayer() {
         val exo = ExoPlayer.Builder(this).build()
         player = exo
@@ -167,6 +134,13 @@ class MainActivity : Activity() {
                     Player.STATE_BUFFERING, Player.STATE_IDLE -> showLoading()
                     Player.STATE_READY, Player.STATE_ENDED -> hideLoading()
                 }
+            }
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+                    val prevIndex = lastPlayedIndex
+                    if (prevIndex >= 0) incrementViewsForIndex(prevIndex)
+                }
+                lastPlayedIndex = exo.currentMediaItemIndex
             }
             override fun onPlayerError(error: com.google.android.exoplayer2.PlaybackException) {
                 // Pula silenciosamente para o próximo item
@@ -185,6 +159,7 @@ class MainActivity : Activity() {
         showLoading()
         exo.prepare()
         exo.play()
+        lastPlayedIndex = exo.currentMediaItemIndex
     }
 
     private val loadingRunnable = object : Runnable {
@@ -220,41 +195,65 @@ class MainActivity : Activity() {
         player = null
     }
 
-    private fun buildMediaItemsFromJson(): List<MediaItem> {
-        return try {
-            val jsonArray = JSONArray(videosJson)
-            val uris = mutableListOf<Uri>()
-            val prefs = getSharedPreferences(SettingsActivity.PREFS_NAME, Context.MODE_PRIVATE)
-            val chosen = (prefs.getString(SettingsActivity.KEY_VIDEO_ORIENTATION, SettingsActivity.ORIENTATION_LANDSCAPE)
-                ?: SettingsActivity.ORIENTATION_LANDSCAPE).lowercase()
-            val establishment = prefs.getString(SettingsActivity.KEY_ESTABLISHMENT, "") ?: ""
-            val cep = prefs.getString(SettingsActivity.KEY_CEP, "") ?: ""
+    private fun setOnline(online: Boolean) {
+        if (tvId <= 0) return
+        db.child("tvs").child(tvId.toString()).child("status_online").setValue(online)
+        if (online) updateLastSeen()
+    }
 
-            // Monta JSON aumentado com chave analytics por vídeo
-            val augmented = JSONArray()
-            
-            for (i in 0 until jsonArray.length()) {
-                val item = jsonArray.getJSONObject(i)
-                // Adiciona chave analytics
-                val analytics = JSONObject()
-                    .put("establishment", establishment)
-                    .put("cep", cep)
-                val itemWithAnalytics = JSONObject(item.toString())
-                itemWithAnalytics.put("analytics", analytics)
-                augmented.put(itemWithAnalytics)
+    private fun updateLastSeen() {
+        if (tvId <= 0) return
+        val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.format(Date())
+        db.child("tvs").child(tvId.toString()).child("ultimo_visto").setValue(iso)
+    }
 
-                val url = itemWithAnalytics.getString("url")
-                val itemOrientation = itemWithAnalytics.optString("orientation", "").lowercase()
-                val orientationMatches = itemOrientation.isEmpty() || itemOrientation == chosen
-                if (orientationMatches) {
-                    runCatching { Uri.parse(url) }.getOrNull()?.let { uris.add(it) }
-                }
+    private fun fetchMediaItemsFromDatabase(onLoaded: (List<MediaItem>, List<VideoRecord>) -> Unit) {
+        val prefs = getSharedPreferences(SettingsActivity.PREFS_NAME, Context.MODE_PRIVATE)
+        val chosen = (prefs.getString(SettingsActivity.KEY_VIDEO_ORIENTATION, SettingsActivity.ORIENTATION_LANDSCAPE)
+            ?: SettingsActivity.ORIENTATION_LANDSCAPE).lowercase()
+        // Campos locais não são mais acoplados a um JSON auxiliar
+
+        db.child("videos").get().addOnCompleteListener { task ->
+            if (!task.isSuccessful) {
+                onLoaded(emptyList(), emptyList())
+                return@addOnCompleteListener
             }
-            
-            playlistJsonWithAnalytics = augmented.toString()
-            uris.map { uri -> MediaItem.fromUri(uri) }
-        } catch (e: Exception) {
-            emptyList()
+            val mediaItems = mutableListOf<MediaItem>()
+            val records = mutableListOf<VideoRecord>()
+            val snapshot = task.result
+            snapshot?.children?.forEach { child ->
+                val key = child.key ?: return@forEach
+                val url = child.child("url").getValue(String::class.java) ?: return@forEach
+                val itemOrientation = (child.child("orientation").getValue(String::class.java) ?: "").lowercase()
+                val orientationMatches = itemOrientation.isEmpty() || itemOrientation == chosen
+                if (!orientationMatches) return@forEach
+                val videoId = child.child("id").getValue(Int::class.java) ?: 0
+
+                val mediaItem = MediaItem.fromUri(Uri.parse(url))
+                mediaItems.add(mediaItem)
+                records.add(VideoRecord(dbKey = key, videoId = videoId, mediaItem = mediaItem))
+            }
+            onLoaded(mediaItems, records)
         }
+    }
+
+    private fun incrementViewsForIndex(index: Int) {
+        if (index < 0 || index >= videoRecords.size) return
+        val record = videoRecords[index]
+        val viewsRef = db.child("videos").child(record.dbKey).child("views")
+        viewsRef.runTransaction(object : com.google.firebase.database.Transaction.Handler {
+            override fun doTransaction(currentData: com.google.firebase.database.MutableData): com.google.firebase.database.Transaction.Result {
+                val current = (currentData.getValue(Int::class.java) ?: 0)
+                currentData.value = current + 1
+                return com.google.firebase.database.Transaction.success(currentData)
+            }
+            override fun onComplete(
+                error: com.google.firebase.database.DatabaseError?,
+                committed: Boolean,
+                currentData: com.google.firebase.database.DataSnapshot?
+            ) { }
+        })
     }
 }

@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
 import android.widget.TextView
+import com.google.firebase.auth.FirebaseAuth
 
 class SplashActivity : Activity() {
 
@@ -32,9 +33,9 @@ class SplashActivity : Activity() {
         versionTextView.text = "Versão $versionName"
 
         Handler(Looper.getMainLooper()).postDelayed({
-            val prefs = getSharedPreferences(SettingsActivity.PREFS_NAME, MODE_PRIVATE)
-            val setupDone = prefs.getBoolean(SettingsActivity.KEY_SETUP_DONE, false)
-            val next = if (setupDone) MainActivity::class.java else SettingsActivity::class.java
+            val auth = FirebaseAuth.getInstance()
+            val isLoggedIn = auth.currentUser != null
+            val next = if (isLoggedIn) MainActivity::class.java else SettingsActivity::class.java
             startActivity(Intent(this@SplashActivity, next))
             finish()
         }, 2500)
