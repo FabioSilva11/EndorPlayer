@@ -5,9 +5,12 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.os.Bundle
+import android.view.View
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.checkbox.MaterialCheckBox
+import com.google.android.material.progressindicator.CircularProgressIndicator
 import com.google.android.material.textfield.TextInputEditText
+import com.google.android.material.textfield.TextInputLayout
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
@@ -27,21 +30,34 @@ class SettingsActivity : Activity() {
 
         val checkboxLandscape: MaterialCheckBox = findViewById(R.id.checkbox_landscape)
         val checkboxPortrait: MaterialCheckBox = findViewById(R.id.checkbox_portrait)
+        val checkboxFilterUserId: MaterialCheckBox = findViewById(R.id.checkbox_filter_userid)
         val editEstablishment: TextInputEditText = findViewById(R.id.edit_establishment)
+        val layoutEstablishment: TextInputLayout = findViewById(R.id.layout_establishment)
         val editCep: TextInputEditText = findViewById(R.id.edit_cep)
+        val layoutCep: TextInputLayout = findViewById(R.id.layout_cep)
         val editRua: TextInputEditText = findViewById(R.id.edit_rua)
+        val layoutRua: TextInputLayout = findViewById(R.id.layout_rua)
         val editNumero: TextInputEditText = findViewById(R.id.edit_numero)
+        val layoutNumero: TextInputLayout = findViewById(R.id.layout_numero)
+        val editUserId: TextInputEditText = findViewById(R.id.edit_user_id)
+        val layoutUserId: TextInputLayout = findViewById(R.id.layout_user_id)
         val buttonSave: MaterialButton = findViewById(R.id.button_save)
+        val progressSaving: CircularProgressIndicator = findViewById(R.id.progress_saving)
 
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val isLandscape = prefs.getInt(KEY_ORIENTATION, ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE) == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         val establishment = prefs.getString(KEY_ESTABLISHMENT, "") ?: ""
         val cep = prefs.getString(KEY_CEP, "") ?: ""
+        val filterEnabled = prefs.getBoolean(KEY_FILTER_ENABLED, false)
+        val filterUserId = prefs.getString(KEY_FILTER_VALUE, "") ?: ""
 
         checkboxLandscape.isChecked = isLandscape
         checkboxPortrait.isChecked = !isLandscape
         editEstablishment.setText(establishment)
         editCep.setText(cep)
+        checkboxFilterUserId.isChecked = filterEnabled
+        editUserId.setText(filterUserId)
+        editUserId.isEnabled = filterEnabled
 
         checkboxLandscape.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked) checkboxPortrait.isChecked = false
@@ -51,6 +67,9 @@ class SettingsActivity : Activity() {
             if (isChecked) checkboxLandscape.isChecked = false
             else if (!checkboxLandscape.isChecked) checkboxLandscape.isChecked = true
         }
+        checkboxFilterUserId.setOnCheckedChangeListener { _, isChecked ->
+            editUserId.isEnabled = isChecked
+        }
 
         buttonSave.setOnClickListener {
             val chosenOrientation = if (checkboxLandscape.isChecked) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -59,26 +78,58 @@ class SettingsActivity : Activity() {
             val cepValue = editCep.text?.toString()?.trim() ?: ""
             val ruaValue = editRua.text?.toString()?.trim() ?: ""
             val numeroValue = editNumero.text?.toString()?.trim() ?: ""
+            val filterEnabledNow = checkboxFilterUserId.isChecked
+            val filterUserIdNow = editUserId.text?.toString()?.trim() ?: ""
 
             var hasError = false
 
             if (nameValue.isEmpty()) {
-                editEstablishment.error = "Informe o nome do estabelecimento"
+                layoutEstablishment.error = "Informe o nome do estabelecimento"
                 hasError = true
             } else {
-                editEstablishment.error = null
+                layoutEstablishment.error = null
             }
 
             val cepDigits = cepValue.replace("-", "")
-            val cepValid = cepDigits.matches(Regex("\\d{8}"))
-            if (!cepValid) {
-                editCep.error = "CEP inválido (use 00000-000)"
+            if (cepValue.isEmpty()) {
+                layoutCep.error = "Informe o CEP"
                 hasError = true
             } else {
-                editCep.error = null
+                val cepValid = cepDigits.matches(Regex("\\d{8}"))
+                if (!cepValid) {
+                    layoutCep.error = "CEP inválido (use 00000-000)"
+                    hasError = true
+                } else {
+                    layoutCep.error = null
+                }
+            }
+
+            if (filterEnabledNow && filterUserIdNow.isEmpty()) {
+                layoutUserId.error = "Informe o filter (número)"
+                hasError = true
+            } else {
+                layoutUserId.error = null
+            }
+
+            if (ruaValue.isEmpty()) {
+                layoutRua.error = "Informe a rua"
+                hasError = true
+            } else {
+                layoutRua.error = null
+            }
+
+            if (numeroValue.isEmpty()) {
+                layoutNumero.error = "Informe o número"
+                hasError = true
+            } else {
+                layoutNumero.error = null
             }
 
             if (hasError) return@setOnClickListener
+
+            // Oculta o botão e mostra o loading
+            buttonSave.visibility = View.GONE
+            progressSaving.visibility = View.VISIBLE
 
             prefs.edit()
                 .putInt(KEY_ORIENTATION, chosenOrientation)
@@ -86,6 +137,8 @@ class SettingsActivity : Activity() {
                 .putString(KEY_ESTABLISHMENT, nameValue)
                 .putString(KEY_CEP, if (cepValue.contains("-")) cepValue else cepDigits.substring(0,5) + "-" + cepDigits.substring(5))
                 .putBoolean(KEY_SETUP_DONE, true)
+                .putBoolean(KEY_FILTER_ENABLED, filterEnabledNow)
+                .putString(KEY_FILTER_VALUE, filterUserIdNow)
                 .apply()
 
             val auth = FirebaseAuth.getInstance()
@@ -114,9 +167,13 @@ class SettingsActivity : Activity() {
                         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
                             .putInt(KEY_TV_ID, tvId)
                             .apply()
+                        startActivity(Intent(this@SettingsActivity, MainActivity::class.java))
+                        finish()
+                    } else {
+                        // Erro ao salvar: mostra o botão novamente
+                        buttonSave.visibility = View.VISIBLE
+                        progressSaving.visibility = View.GONE
                     }
-                    startActivity(Intent(this@SettingsActivity, MainActivity::class.java))
-                    finish()
                 }
             }
 
@@ -130,6 +187,12 @@ class SettingsActivity : Activity() {
                         return Transaction.success(currentData)
                     }
                     override fun onComplete(error: DatabaseError?, committed: Boolean, currentData: DataSnapshot?) {
+                        if (error != null || !committed) {
+                            // Erro na transação: mostra o botão novamente
+                            buttonSave.visibility = View.VISIBLE
+                            progressSaving.visibility = View.GONE
+                            return
+                        }
                         val assignedId = (currentData?.getValue(Int::class.java) ?: 11) - 1
                         proceedAfterAuthAndSave(assignedId)
                     }
@@ -137,7 +200,15 @@ class SettingsActivity : Activity() {
             }
 
             if (auth.currentUser == null) {
-                auth.signInAnonymously().addOnCompleteListener { ensureIdAndSave() }
+                auth.signInAnonymously().addOnCompleteListener { task ->
+                    if (task.isSuccessful) {
+                        ensureIdAndSave()
+                    } else {
+                        // Erro no login: mostra o botão novamente
+                        buttonSave.visibility = View.VISIBLE
+                        progressSaving.visibility = View.GONE
+                    }
+                }
             } else {
                 ensureIdAndSave()
             }
@@ -154,6 +225,8 @@ class SettingsActivity : Activity() {
         const val KEY_CEP = "cep"
         const val KEY_SETUP_DONE = "setup_done"
         const val KEY_TV_ID = "tv_id"
+        const val KEY_FILTER_ENABLED = "filter_enabled"
+        const val KEY_FILTER_VALUE = "filter_value"
     }
 }
 

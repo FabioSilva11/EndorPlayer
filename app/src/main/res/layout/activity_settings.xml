@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true"
@@ -51,6 +52,7 @@
             android:layout_marginTop="24dp" />
 
         <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/layout_establishment"
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
 
@@ -69,6 +71,7 @@
             android:layout_marginTop="24dp" />
 
         <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/layout_cep"
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
 
@@ -83,10 +86,37 @@
         <com.google.android.material.textview.MaterialTextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:text="Filtro por filter"
+            android:layout_marginTop="24dp" />
+
+        <com.google.android.material.checkbox.MaterialCheckBox
+            android:id="@+id/checkbox_filter_userid"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Ativar filtro por filter" />
+
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/layout_user_id"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/edit_user_id"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Informe o filter (número)"
+                android:enabled="false"
+                android:inputType="number" />
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <com.google.android.material.textview.MaterialTextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:text="Endereço"
             android:layout_marginTop="24dp" />
 
         <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/layout_rua"
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
 
@@ -99,6 +129,7 @@
         </com.google.android.material.textfield.TextInputLayout>
 
         <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/layout_numero"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp">
@@ -111,12 +142,30 @@
                 android:inputType="number" />
         </com.google.android.material.textfield.TextInputLayout>
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/button_save"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Salvar e continuar"
-            android:layout_marginTop="32dp" />
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginTop="32dp">
+            
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/button_save"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Salvar e continuar" />
+
+            <com.google.android.material.progressindicator.CircularProgressIndicator
+                android:id="@+id/progress_saving"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:indeterminate="true"
+                android:visibility="gone"
+                app:indicatorSize="48dp"
+                app:indicatorColor="@color/teal_700"
+                app:trackThickness="4dp"
+                app:trackColor="@color/gray" />
+        </LinearLayout>
 
     </LinearLayout>
 

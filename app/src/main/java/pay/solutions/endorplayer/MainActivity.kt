@@ -7,8 +7,9 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.View
-import android.widget.TextView
+import android.widget.Toast
 import androidx.core.view.WindowCompat
+import com.google.android.material.progressindicator.CircularProgressIndicator
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.google.android.exoplayer2.ExoPlayer
@@ -24,10 +25,7 @@ import java.util.TimeZone
 class MainActivity : Activity() {
 
     private lateinit var playerView: PlayerView
-    private lateinit var loadingText: TextView
-    private val loadingHandler = Handler(Looper.getMainLooper())
-    private var dotsCount = 0
-    private var loadingRunning = false
+    private lateinit var progressLoading: CircularProgressIndicator
     private var player: ExoPlayer? = null
     private var items: List<MediaItem> = emptyList()
     private data class VideoRecord(
@@ -55,7 +53,7 @@ class MainActivity : Activity() {
         setContentView(R.layout.activity_main)
 
         playerView = findViewById(R.id.player_view)
-        loadingText = findViewById(R.id.text_loading)
+        progressLoading = findViewById(R.id.progress_loading)
         fetchMediaItemsFromDatabase { mediaItems, records ->
             items = mediaItems
             videoRecords = records
@@ -162,31 +160,12 @@ class MainActivity : Activity() {
         lastPlayedIndex = exo.currentMediaItemIndex
     }
 
-    private val loadingRunnable = object : Runnable {
-        override fun run() {
-            if (!loadingRunning) return
-            dotsCount = (dotsCount + 1) % 6 // 0..5
-            val dots = ".".repeat(dotsCount)
-            loadingText.text = "sincronizando dados com a nuvem aguarde" + dots
-            loadingHandler.postDelayed(this, 500)
-        }
-    }
-
     private fun showLoading() {
-        if (loadingText.visibility != View.VISIBLE) {
-            loadingText.visibility = View.VISIBLE
-        }
-        if (!loadingRunning) {
-            loadingRunning = true
-            dotsCount = 0
-            loadingHandler.post(loadingRunnable)
-        }
+        progressLoading.visibility = View.VISIBLE
     }
 
     private fun hideLoading() {
-        loadingText.visibility = View.GONE
-        loadingRunning = false
-        loadingHandler.removeCallbacks(loadingRunnable)
+        progressLoading.visibility = View.GONE
     }
 
     private fun releasePlayer() {
@@ -213,7 +192,9 @@ class MainActivity : Activity() {
         val prefs = getSharedPreferences(SettingsActivity.PREFS_NAME, Context.MODE_PRIVATE)
         val chosen = (prefs.getString(SettingsActivity.KEY_VIDEO_ORIENTATION, SettingsActivity.ORIENTATION_LANDSCAPE)
             ?: SettingsActivity.ORIENTATION_LANDSCAPE).lowercase()
-        // Campos locais não são mais acoplados a um JSON auxiliar
+        val filterEnabled = prefs.getBoolean(SettingsActivity.KEY_FILTER_ENABLED, false)
+        val filterValueStr = prefs.getString(SettingsActivity.KEY_FILTER_VALUE, "")?.trim().orEmpty()
+        val filterValueNum: Long? = filterValueStr.toLongOrNull()
 
         db.child("videos").get().addOnCompleteListener { task ->
             if (!task.isSuccessful) {
@@ -229,11 +210,20 @@ class MainActivity : Activity() {
                 val itemOrientation = (child.child("orientation").getValue(String::class.java) ?: "").lowercase()
                 val orientationMatches = itemOrientation.isEmpty() || itemOrientation == chosen
                 if (!orientationMatches) return@forEach
+                if (filterEnabled) {
+                    if (filterValueNum == null) return@forEach
+                    val dbFilter: Long? = child.child("filter").getValue(Long::class.java)
+                        ?: child.child("filter").getValue(Int::class.java)?.toLong()
+                    if (dbFilter == null || dbFilter != filterValueNum) return@forEach
+                }
                 val videoId = child.child("id").getValue(Int::class.java) ?: 0
 
                 val mediaItem = MediaItem.fromUri(Uri.parse(url))
                 mediaItems.add(mediaItem)
                 records.add(VideoRecord(dbKey = key, videoId = videoId, mediaItem = mediaItem))
+            }
+            if (mediaItems.isEmpty()) {
+                Toast.makeText(this, "Nenhum vídeo encontrado para o filtro aplicado", Toast.LENGTH_LONG).show()
             }
             onLoaded(mediaItems, records)
         }

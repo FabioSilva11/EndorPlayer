@@ -12,14 +12,44 @@
         app:use_controller="false"
         app:resize_mode="fill" />
 
-    <TextView
-        android:id="@+id/text_loading"
+    <com.google.android.material.progressindicator.CircularProgressIndicator
+        android:id="@+id/progress_loading"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:text="sincronizando dados com a nuvem aguarde"
-        android:textSize="16sp"
-        android:textColor="@android:color/white"
+        android:indeterminate="true"
+        app:indicatorSize="48dp"
+        app:indicatorColor="@color/teal_700"
+        app:trackThickness="4dp"
+        app:trackColor="@color/gray"
         android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/overlay_placeholder"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:orientation="vertical"
+        android:padding="8dp"
+        android:layout_margin="12dp"
+        android:background="#66000000">
+
+        <TextView
+            android:id="@+id/text_placeholder_site"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="seusite.com"
+            android:textColor="@android:color/white"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/text_placeholder_call"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="anuncie aqui"
+            android:textStyle="bold"
+            android:textColor="@android:color/white"
+            android:textSize="14sp" />
+    </LinearLayout>
 
 </FrameLayout>
