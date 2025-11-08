@@ -45,127 +45,42 @@
             android:text="Retrato"
             android:layout_marginBottom="8dp" />
 
-        <com.google.android.material.textview.MaterialTextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Nome do estabelecimento"
-            android:layout_marginTop="24dp" />
-
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/layout_establishment"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/edit_establishment"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:hint="Ex.: Loja Exemplo"
-                android:inputType="textPersonName" />
-        </com.google.android.material.textfield.TextInputLayout>
+        
 
         <com.google.android.material.textview.MaterialTextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="CEP"
-            android:layout_marginTop="24dp" />
-
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/layout_cep"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/edit_cep"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:hint="Ex.: 01001-000"
-                android:inputType="number" />
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <com.google.android.material.textview.MaterialTextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Filtro por filter"
+            android:text="Filtro"
             android:layout_marginTop="24dp" />
 
         <com.google.android.material.checkbox.MaterialCheckBox
-            android:id="@+id/checkbox_filter_userid"
+            android:id="@+id/checkbox_filter"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Ativar filtro por filter" />
+            android:text="Ativar filtro" />
 
         <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/layout_user_id"
+            android:id="@+id/layout_filter_code"
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
 
             <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/edit_user_id"
+                android:id="@+id/edit_filter_code"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="Informe o filter (número)"
+                android:hint="Informe o código do filtro (número)"
                 android:enabled="false"
                 android:inputType="number" />
         </com.google.android.material.textfield.TextInputLayout>
 
-        <com.google.android.material.textview.MaterialTextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Endereço"
-            android:layout_marginTop="24dp" />
+        
 
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/layout_rua"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/edit_rua"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:hint="Rua"
-                android:inputType="text" />
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <com.google.android.material.textfield.TextInputLayout
-            android:id="@+id/layout_numero"
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/button_save"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/edit_numero"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:hint="Número"
-                android:inputType="number" />
-        </com.google.android.material.textfield.TextInputLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center"
-            android:layout_marginTop="32dp">
-            
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/button_save"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Salvar e continuar" />
-
-            <com.google.android.material.progressindicator.CircularProgressIndicator
-                android:id="@+id/progress_saving"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:indeterminate="true"
-                android:visibility="gone"
-                app:indicatorSize="48dp"
-                app:indicatorColor="@color/teal_700"
-                app:trackThickness="4dp"
-                app:trackColor="@color/gray" />
-        </LinearLayout>
+            android:text="Salvar e continuar"
+            android:layout_marginTop="32dp" />
 
     </LinearLayout>
 

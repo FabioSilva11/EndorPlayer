@@ -4,23 +4,27 @@ import android.app.Activity
 import android.content.Context
 import android.net.Uri
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.view.View
 import android.widget.Toast
 import androidx.core.view.WindowCompat
 import com.google.android.material.progressindicator.CircularProgressIndicator
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import android.util.Log
 import com.google.android.exoplayer2.ExoPlayer
 import com.google.android.exoplayer2.MediaItem
 import com.google.android.exoplayer2.Player
 import com.google.android.exoplayer2.ui.PlayerView
-import com.google.firebase.database.FirebaseDatabase
-import java.text.SimpleDateFormat
-import java.util.Date
+import okhttp3.HttpUrl
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody
+import okhttp3.Response
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.Locale
-import java.util.TimeZone
 
 class MainActivity : Activity() {
 
@@ -29,24 +33,15 @@ class MainActivity : Activity() {
     private var player: ExoPlayer? = null
     private var items: List<MediaItem> = emptyList()
     private data class VideoRecord(
-        val dbKey: String,
         val videoId: Int,
         val mediaItem: MediaItem
     )
     private var videoRecords: List<VideoRecord> = emptyList()
     private var lastPlayedIndex: Int = -1
+    // Controle para não incrementar mais de uma vez por vídeo nesta sessão
+    private val incrementedVideoIds: MutableSet<Int> = mutableSetOf()
 
-    private val db by lazy { FirebaseDatabase.getInstance().reference }
-    private var tvId: Int = -1
-    private val presenceHandler = Handler(Looper.getMainLooper())
-    private val presenceRunnable = object : Runnable {
-        override fun run() {
-            updateLastSeen()
-            presenceHandler.postDelayed(this, 60_000) // 60s
-        }
-    }
-
-    // JSON local removido: agora os vídeos vêm apenas do Firebase
+    private val httpClient by lazy { OkHttpClient() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,10 +56,6 @@ class MainActivity : Activity() {
                 initializePlayer()
             }
         }
-
-        // Carrega id da TV salvo nas preferências
-        tvId = getSharedPreferences(SettingsActivity.PREFS_NAME, Context.MODE_PRIVATE)
-            .getInt(SettingsActivity.KEY_TV_ID, -1)
 
         applyImmersiveMode()
 
@@ -101,22 +92,13 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        setOnline(true)
-        presenceHandler.removeCallbacks(presenceRunnable)
-        presenceHandler.post(presenceRunnable)
     }
 
     override fun onPause() {
         super.onPause()
-        presenceHandler.removeCallbacks(presenceRunnable)
-        setOnline(false)
-        updateLastSeen()
     }
 
     override fun onDestroy() {
-        presenceHandler.removeCallbacks(presenceRunnable)
-        setOnline(false)
-        updateLastSeen()
         super.onDestroy()
     }
 
@@ -130,14 +112,16 @@ class MainActivity : Activity() {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 when (playbackState) {
                     Player.STATE_BUFFERING, Player.STATE_IDLE -> showLoading()
-                    Player.STATE_READY, Player.STATE_ENDED -> hideLoading()
+                    Player.STATE_READY -> {
+                        // Migração: incrementa visualizações ao iniciar reprodução,
+                        // seguindo o exemplo Python (incremento após reproduzir).
+                        maybeIncrementCurrent()
+                        hideLoading()
+                    }
+                    Player.STATE_ENDED -> hideLoading()
                 }
             }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
-                    val prevIndex = lastPlayedIndex
-                    if (prevIndex >= 0) incrementViewsForIndex(prevIndex)
-                }
                 lastPlayedIndex = exo.currentMediaItemIndex
             }
             override fun onPlayerError(error: com.google.android.exoplayer2.PlaybackException) {
@@ -174,20 +158,6 @@ class MainActivity : Activity() {
         player = null
     }
 
-    private fun setOnline(online: Boolean) {
-        if (tvId <= 0) return
-        db.child("tvs").child(tvId.toString()).child("status_online").setValue(online)
-        if (online) updateLastSeen()
-    }
-
-    private fun updateLastSeen() {
-        if (tvId <= 0) return
-        val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
-            timeZone = TimeZone.getTimeZone("UTC")
-        }.format(Date())
-        db.child("tvs").child(tvId.toString()).child("ultimo_visto").setValue(iso)
-    }
-
     private fun fetchMediaItemsFromDatabase(onLoaded: (List<MediaItem>, List<VideoRecord>) -> Unit) {
         val prefs = getSharedPreferences(SettingsActivity.PREFS_NAME, Context.MODE_PRIVATE)
         val chosen = (prefs.getString(SettingsActivity.KEY_VIDEO_ORIENTATION, SettingsActivity.ORIENTATION_LANDSCAPE)
@@ -196,54 +166,141 @@ class MainActivity : Activity() {
         val filterValueStr = prefs.getString(SettingsActivity.KEY_FILTER_VALUE, "")?.trim().orEmpty()
         val filterValueNum: Long? = filterValueStr.toLongOrNull()
 
-        db.child("videos").get().addOnCompleteListener { task ->
-            if (!task.isSuccessful) {
-                onLoaded(emptyList(), emptyList())
-                return@addOnCompleteListener
-            }
-            val mediaItems = mutableListOf<MediaItem>()
-            val records = mutableListOf<VideoRecord>()
-            val snapshot = task.result
-            snapshot?.children?.forEach { child ->
-                val key = child.key ?: return@forEach
-                val url = child.child("url").getValue(String::class.java) ?: return@forEach
-                val itemOrientation = (child.child("orientation").getValue(String::class.java) ?: "").lowercase()
-                val orientationMatches = itemOrientation.isEmpty() || itemOrientation == chosen
-                if (!orientationMatches) return@forEach
-                if (filterEnabled) {
-                    if (filterValueNum == null) return@forEach
-                    val dbFilter: Long? = child.child("filter").getValue(Long::class.java)
-                        ?: child.child("filter").getValue(Int::class.java)?.toLong()
-                    if (dbFilter == null || dbFilter != filterValueNum) return@forEach
-                }
-                val videoId = child.child("id").getValue(Int::class.java) ?: 0
+        val urlBuilder = HttpUrl.Builder()
+            .scheme(API_SCHEME)
+            .host(API_HOST)
+            .addPathSegment("functions")
+            .addPathSegment("v1")
+            .addPathSegment("videos")
 
-                val mediaItem = MediaItem.fromUri(Uri.parse(url))
-                mediaItems.add(mediaItem)
-                records.add(VideoRecord(dbKey = key, videoId = videoId, mediaItem = mediaItem))
-            }
-            if (mediaItems.isEmpty()) {
-                Toast.makeText(this, "Nenhum vídeo encontrado para o filtro aplicado", Toast.LENGTH_LONG).show()
-            }
-            onLoaded(mediaItems, records)
+        if (filterEnabled && filterValueNum != null && filterValueNum > 0) {
+            urlBuilder.addQueryParameter("filter_code", filterValueNum.toString())
         }
+
+        val request = Request.Builder()
+            .url(urlBuilder.build())
+            .get()
+            .build()
+
+        httpClient.newCall(request).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                runOnUiThread { onLoaded(emptyList(), emptyList()) }
+            }
+
+            override fun onResponse(call: okhttp3.Call, response: Response) {
+                response.use {
+                    val body = it.body?.string() ?: "{}"
+                    // The API returns an object with a "videos" array. Be robust to raw array too.
+                    val arr = try {
+                        val root = JSONObject(body)
+                        root.optJSONArray("videos") ?: JSONArray()
+                    } catch (_: Exception) {
+                        try { JSONArray(body) } catch (_: Exception) { JSONArray() }
+                    }
+                    val mediaItems = mutableListOf<MediaItem>()
+                    val records = mutableListOf<VideoRecord>()
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.optJSONObject(i) ?: continue
+                        val rawUrl = obj.optString("url")
+                        // Remove accidental backticks/spaces copied from formatting
+                        val urlStr = rawUrl.replace("`", "").trim()
+                        val idVal = obj.optInt("id", -1)
+                        val o = obj.optString("orientation", "").lowercase(Locale.getDefault())
+                        if (urlStr.isEmpty() || !urlStr.startsWith("http") || idVal <= 0) continue
+                        if (o.isNotEmpty() && chosen != "auto" && o != chosen) continue
+                        val mediaItem = MediaItem.fromUri(Uri.parse(urlStr))
+                        mediaItems.add(mediaItem)
+                        records.add(VideoRecord(videoId = idVal, mediaItem = mediaItem))
+                    }
+                    runOnUiThread { onLoaded(mediaItems, records) }
+                }
+            }
+        })
     }
 
     private fun incrementViewsForIndex(index: Int) {
         if (index < 0 || index >= videoRecords.size) return
-        val record = videoRecords[index]
-        val viewsRef = db.child("videos").child(record.dbKey).child("views")
-        viewsRef.runTransaction(object : com.google.firebase.database.Transaction.Handler {
-            override fun doTransaction(currentData: com.google.firebase.database.MutableData): com.google.firebase.database.Transaction.Result {
-                val current = (currentData.getValue(Int::class.java) ?: 0)
-                currentData.value = current + 1
-                return com.google.firebase.database.Transaction.success(currentData)
+        val videoId = videoRecords[index].videoId
+        // Evita incrementar duas vezes o mesmo vídeo em uma única sessão
+        if (incrementedVideoIds.contains(videoId)) return
+
+        val url = HttpUrl.Builder()
+            .scheme(API_SCHEME)
+            .host(API_HOST)
+            .addPathSegment("functions")
+            .addPathSegment("v1")
+            .addPathSegment("videos")
+            .addQueryParameter("video_id", videoId.toString())
+            .build()
+
+        // 1) GET current views
+        val getReq = Request.Builder().url(url).get().build()
+        httpClient.newCall(getReq).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                // Ignore failures silently
             }
-            override fun onComplete(
-                error: com.google.firebase.database.DatabaseError?,
-                committed: Boolean,
-                currentData: com.google.firebase.database.DataSnapshot?
-            ) { }
+            override fun onResponse(call: okhttp3.Call, response: Response) {
+                response.use {
+                    val bodyStr = it.body?.string().orEmpty()
+                    var currentViews = -1
+                    try {
+                        val root = JSONObject(bodyStr)
+                        // Prefer { "video": { "views": N } }
+                        val videoObj = root.optJSONObject("video")
+                        if (videoObj != null) {
+                            currentViews = videoObj.optInt("views", -1)
+                        } else {
+                            // Fallbacks: { "views": N } or { "videos": [ {...} ] }
+                            currentViews = root.optInt("views", -1)
+                            if (currentViews < 0) {
+                                val arr = root.optJSONArray("videos")
+                                if (arr != null) {
+                                    for (i in 0 until arr.length()) {
+                                        val obj = arr.optJSONObject(i) ?: continue
+                                        if (obj.optInt("id", -1) == videoId) {
+                                            currentViews = obj.optInt("views", -1)
+                                            break
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {
+                        // If parsing fails, skip
+                    }
+
+                    if (currentViews < 0) return
+                    val newViews = currentViews + 1
+
+                    // 2) POST set views to current+1
+                    val jsonObj = JSONObject()
+                        .put("action", "set")
+                        .put("views", newViews)
+                    val postBody: RequestBody = jsonObj.toString()
+                        .toRequestBody("application/json".toMediaTypeOrNull())
+                    val postReq = Request.Builder().url(url).post(postBody).build()
+                    httpClient.newCall(postReq).enqueue(object : okhttp3.Callback {
+                        override fun onFailure(call: okhttp3.Call, e: java.io.IOException) { /* ignore */ }
+                        override fun onResponse(call: okhttp3.Call, response: Response) { response.close() }
+                    })
+                    // Marca como incrementado após disparar POST
+                    incrementedVideoIds.add(videoId)
+                }
+            }
         })
+    }
+
+    // Auxiliar: incrementa views quando o player entra em READY para o item atual
+    private fun maybeIncrementCurrent() {
+        val exo = player ?: return
+        val idx = exo.currentMediaItemIndex
+        if (idx in videoRecords.indices) {
+            incrementViewsForIndex(idx)
+        }
+    }
+
+    companion object {
+        private const val API_SCHEME = "https"
+        private const val API_HOST = "snhkaxkpczwmxsxdfjas.supabase.co"
     }
 }
